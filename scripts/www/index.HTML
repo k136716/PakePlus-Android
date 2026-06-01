@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>专业K线工具 - 带涨跌幅悬停提示</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body {
+            background: #0f172a;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            margin: 0;
+            padding: 12px;
+            color: #e2e8f0;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: #111827;
+            border-radius: 28px;
+            overflow-x: hidden;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+        }
+        .top-bar {
+            background: #1e293b;
+            padding: 10px 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+        }
+        .tool-group {
+            background: #0f172a;
+            padding: 4px 10px;
+            border-radius: 32px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        input, select, button {
+            background: #2d3a4e;
+            border: 1px solid #475569;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 24px;
+            font-size: 13px;
+            cursor: pointer;
+            outline: none;
+        }
+        button:active { transform: scale(0.96); }
+        .btn-up { background: #dc2626; border: none; }
+        .btn-down { background: #10b981; border: none; }
+        .btn-ma { background: #8b5cf6; border: none; }
+        .btn-clear { background: #f97316; border: none; }
+        .btn-danger { background: #dc2626; border: none; }
+        .btn-success { background: #2563eb; border: none; }
+        .status {
+            font-size: 12px;
+            color: #94a3b8;
+            margin-left: auto;
+        }
+        .collapse {
+            background: #1e293b;
+            border-radius: 20px;
+            margin: 14px 16px 0 16px;
+        }
+        .collapse-header {
+            padding: 10px 16px;
+            cursor: pointer;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+        .collapse-content {
+            padding: 0 16px 16px;
+            display: none;
+        }
+        .collapse.open .collapse-content { display: block; }
+        .chart-area { padding: 16px; }
+        .chart-box { margin-bottom: 24px; position: relative; }
+        .chart-title { font-size: 14px; font-weight: 600; margin-bottom: 6px; padding-left: 6px; }
+        canvas {
+            width: 100%;
+            background: #0f172a;
+            border-radius: 16px;
+            display: block;
+            cursor: crosshair;
+        }
+        /* 自定义浮动提示框 */
+        .kline-tooltip {
+            position: fixed;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(4px);
+            border-radius: 12px;
+            padding: 8px 12px;
+            font-size: 12px;
+            font-family: monospace;
+            pointer-events: none;
+            z-index: 10000;
+            color: #e2e8f0;
+            border-left: 3px solid #8b5cf6;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            white-space: nowrap;
+        }
+        .kline-tooltip .change-red { color: #ef4444; font-weight: bold; }
+        .kline-tooltip .change-green { color: #10b981; font-weight: bold; }
+        .stats-panel {
+            background: #1e293b;
+            border-radius: 20px;
+            padding: 12px 16px;
+            margin: 0 16px 16px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px,1fr));
+            gap: 10px;
+        }
+        .stat-card {
+            background: #0f172a;
+            border-radius: 16px;
+            padding: 6px 8px;
+            text-align: center;
+        }
+        .log-panel {
+            background: #1e293b;
+            border-radius: 20px;
+            margin: 0 16px 16px;
+            padding: 10px;
+        }
+        .log-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .log-list {
+            max-height: 150px;
+            overflow-y: auto;
+            font-size: 12px;
+        }
+        .log-item {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #334155;
+            padding: 4px 0;
+        }
+        .clear-all-btn {
+            margin: 0 16px 20px 16px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        footer {
+            text-align: center;
+            font-size: 11px;
+            color: #5b6e8c;
+            padding: 12px;
+            border-top: 1px solid #1e293b;
+        }
+        @media (max-width: 700px) {
+            canvas { height: 280px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="top-bar">
+        <div class="tool-group">
+            <span>📁 策略</span>
+            <select id="strategySelect"></select>
+            <button id="newStrategyBtn" class="btn-success">新建</button>
+            <button id="exportDataBtn">导出</button>
+            <button id="importDataBtn">导入</button>
+        </div>
+        <div class="tool-group">
+            <button id="maBtn" class="btn-ma">📈 均线</button>
+        </div>
+        <div id="statusMsg" class="status">✅ 就绪</div>
+    </div>
+
+    <div class="collapse open" id="addEditPanel">
+        <div class="collapse-header">📝 添加/编辑日线 & 涨跌指令 ▼</div>
+        <div class="collapse-content">
+            <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;">
+                <div><span>日期</span><input type="date" id="editDate" style="width:125px;"></div>
+                <div><span>开</span><input type="number" id="editOpen" placeholder="开盘" step="0.01" style="width:70px;"></div>
+                <div><span>收</span><input type="number" id="editClose" placeholder="收盘" step="0.01" style="width:70px;"></div>
+                <div><span>高</span><input type="number" id="editHigh" placeholder="最高" step="0.01" style="width:70px;"></div>
+                <div><span>低</span><input type="number" id="editLow" placeholder="最低" step="0.01" style="width:70px;"></div>
+                <button id="saveEditBtn" class="btn-success">保存</button>
+                <button id="deleteKlineBtn" class="btn-clear">删除</button>
+                <label><input type="checkbox" id="autoFillHL"> 自动补全</label>
+            </div>
+            <div style="margin-top: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
+                <span>⚡ 涨跌指令</span>
+                <select id="stepMode" style="width:75px;"><option value="amount">金额</option><option value="percent">百分比</option></select>
+                <input type="number" id="stepValue" step="0.01" placeholder="数值" style="width:90px;">
+                <button id="applyStepBtn" class="btn-up">应用涨跌</button>
+                <span>起始日期</span>
+                <input type="date" id="startDatePicker" value="2026-06-01" style="width:125px;">
+                <button id="addByDateBtn" class="btn-success">按此添加</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="chart-area">
+        <div class="chart-box">
+            <div class="chart-title">📈 日K线（鼠标悬停显示涨跌幅）</div>
+            <canvas id="dailyCanvas" width="800" height="360" style="width:100%; height:auto; background:#0f172a; border-radius:16px;"></canvas>
+        </div>
+        <div class="chart-box">
+            <div class="chart-title">🌙 月K线（自动按月聚合）</div>
+            <canvas id="monthlyCanvas" width="800" height="360" style="width:100%; height:auto; background:#0f172a; border-radius:16px;"></canvas>
+        </div>
+    </div>
+
+    <div class="stats-panel" id="statsPanel"></div>
+    <div class="log-panel">
+        <div class="log-title">
+            <span>📋 涨跌指令记录</span>
+            <button id="clearLogBtn" class="btn-clear" style="padding:2px 8px;">清空记录</button>
+        </div>
+        <div class="log-list" id="logList">暂无记录</div>
+    </div>
+    <div class="clear-all-btn">
+        <button id="clearAllBtn" class="btn-danger">🗑️ 一键清空所有数据</button>
+    </div>
+    <footer>✔ 鼠标悬停在日K线上可查看详细数据及涨跌幅 | 完全离线可用</footer>
+</div>
+
+<script>
+    (function(){
+        // ---------- 全局变量 ----------
+        let dailyData = [];
+        let monthlyData = [];
+        let stepLogs = [];
+        let currentStrategy = "默认策略";
+        let strategies = {};
+        let maSettings = { 5: true, 30: false, 60: false, 90: false, 180: false };
+        let maColors = { 5: '#f59e0b', 30: '#10b981', 60: '#3b82f6', 90: '#ec489a', 180: '#8b5cf6' };
+        
+        // DOM 元素
+        const dailyCanvas = document.getElementById('dailyCanvas');
+        const monthlyCanvas = document.getElementById('monthlyCanvas');
+        let dailyCtx = dailyCanvas.getContext('2d');
+        let monthlyCtx = monthlyCanvas.getContext('2d');
+        
+        // 浮动提示框
+        const tooltipDiv = document.createElement('div');
+        tooltipDiv.className = 'kline-tooltip';
+        tooltipDiv.style.display = 'none';
+        document.body.appendChild(tooltipDiv);
+        
+        // 默认数据
+        const DEFAULT_DAILY = [
+            { date: "2026-06-01", open: 100, close: 102, high: 103, low: 99 },
+            { date: "2026-06-02", open: 102, close: 101, high: 104, low: 100 },
+            { date: "2026-06-03", open: 101, close: 105, high: 106, low: 100 }
+        ];
+
+        // ---------- 绘图函数 ----------
+        function resizeCanvases() {
+            const container = document.querySelector('.chart-box');
+            if (container) {
+                const width = container.clientWidth - 20;
+                dailyCanvas.width = width;
+                dailyCanvas.height = 360;
+                monthlyCanvas.width = width;
+                monthlyCanvas.height = 360;
+            } else {
+                dailyCanvas.width = 800;
+                dailyCanvas.height = 360;
+                monthlyCanvas.width = 800;
+                monthlyCanvas.height = 360;
+            }
+            drawDailyChart();
+            drawMonthlyChart();
+        }
+        window.addEventListener('resize', () => setTimeout(resizeCanvases, 100));
+        
+        // 通用绘图（包含均线）
+        function drawCandles(ctx, data, viewStart, viewEnd, isDaily) {
+            if (!data.length) return;
+            const w = ctx.canvas.width;
+            const h = ctx.canvas.height;
+            const start = Math.max(0, viewStart);
+            const end = Math.min(data.length-1, viewEnd);
+            const visible = data.slice(start, end+1);
+            const count = visible.length;
+            if (count === 0) return;
+            const candleWidth = Math.max(2, (w / count) * 0.7);
+            const spacing = (w / count) * 0.3;
+            const leftMargin = (w - (candleWidth+spacing)*count + spacing)/2;
+            
+            let maxHigh = -Infinity, minLow = Infinity;
+            for (let i=start; i<=end; i++) {
+                maxHigh = Math.max(maxHigh, data[i].high);
+                minLow = Math.min(minLow, data[i].low);
+            }
+            const paddingTop = 20;
+            const paddingBottom = 20;
+            const range = maxHigh - minLow;
+            const yToPixel = (val) => paddingTop + (h - paddingTop - paddingBottom) * (1 - (val - minLow)/range);
+            
+            ctx.clearRect(0, 0, w, h);
+            ctx.fillStyle = "#0f172a";
+            ctx.fillRect(0, 0, w, h);
+            // 网格
+            ctx.strokeStyle = "#1e293b";
+            ctx.lineWidth = 0.5;
+            for (let i=0; i<=4; i++) {
+                let y = paddingTop + (h-paddingTop-paddingBottom) * (i/4);
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(w, y);
+                ctx.stroke();
+            }
+            // K线
+            for (let i=start; i<=end; i++) {
+                const idx = i-start;
+                const x = leftMargin + idx*(candleWidth+spacing);
+                const k = data[i];
+                const openY = yToPixel(k.open);
+                const closeY = yToPixel(k.close);
+                const highY = yToPixel(k.high);
+                const lowY = yToPixel(k.low);
+                const isRise = k.close >= k.open;
+                ctx.fillStyle = isRise ? "#dc2626" : "#10b981";
+                ctx.fillRect(x, Math.min(openY, closeY), candleWidth, Math.abs(closeY-openY));
+                ctx.strokeStyle = isRise ? "#dc2626" : "#10b981";
+                ctx.beginPath();
+                ctx.moveTo(x+candleWidth/2, highY);
+                ctx.lineTo(x+candleWidth/2, lowY);
+                ctx.stroke();
+                // 日期标签
+                if (idx % Math.max(1, Math.floor(count/8)) === 0) {
+                    ctx.fillStyle = "#94a3b8";
+                    ctx.font = "10px sans-serif";
+                    ctx.fillText(k.date, x+2, h-4);
+                }
+            }
+            // 均线（仅日线）
+            if (isDaily && dailyData.length) {
+                const periods = [5,30,60,90,180];
+                for (let p of periods) {
+                    if (maSettings[p]) {
+                        const ma = [];
+                        for (let i=0; i<dailyData.length; i++) {
+                            if (i < p-1) ma.push(null);
+                            else {
+                                let sum = 0;
+                                for (let j=i-p+1; j<=i; j++) sum += dailyData[j].close;
+                                ma.push(sum / p);
+                            }
+                        }
+                        ctx.beginPath();
+                        ctx.strokeStyle = maColors[p];
+                        ctx.lineWidth = 1.5;
+                        let first = true;
+                        for (let i=start; i<=end; i++) {
+                            const val = ma[i];
+                            if (val !== null && isFinite(val)) {
+                                const x = leftMargin + (i-start)*(candleWidth+spacing) + candleWidth/2;
+                                const y = yToPixel(val);
+                                if (first) { ctx.moveTo(x, y); first = false; }
+                                else { ctx.lineTo(x, y); }
+                            } else {
+                                first = true;
+                            }
+                        }
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+        
+        function drawDailyChart() {
+            if (!dailyCtx) return;
+            const viewEnd = Math.min(60, dailyData.length-1);
+            drawCandles(dailyCtx, dailyData, 0, viewEnd, true);
+        }
+        function drawMonthlyChart() {
+            if (!monthlyCtx) return;
+            drawCandles(monthlyCtx, monthlyData, 0, monthlyData.length-1, false);
+        }
+        
+        // 生成月线
+        function generateMonthly() {
+            const months = new Map();
+            dailyData.forEach(d => {
+                const ym = d.date.slice(0,7);
+                if (!months.has(ym)) months.set(ym, []);
+                months.get(ym).push(d);
+            });
+            const newMonthly = [];
+            for (let [ym, days] of months) {
+                days.sort((a,b)=>new Date(a.date)-new Date(b.date));
+                newMonthly.push({
+                    date: ym+"-01",
+                    open: days[0].open,
+                    close: days[days.length-1].close,
+                    high: Math.max(...days.map(d=>d.high)),
+                    low: Math.min(...days.map(d=>d.low))
+                });
+            }
+            newMonthly.sort((a,b)=>new Date(a.date)-new Date(b.date));
+            monthlyData = newMonthly;
+            drawMonthlyChart();
+        }
+        
+        // ---------- 存储与策略 ----------
+        function persistAll() {
+            try {
+                const store = {};
+                for (let name in strategies) store[name] = { dailyData: strategies[name].dailyData, stepLogs: strategies[name].stepLogs };
+                localStorage.setItem('kline_offline_tooltip', JSON.stringify(store));
+                localStorage.setItem('current_strategy_tooltip', currentStrategy);
+                localStorage.setItem('ma_settings_tooltip', JSON.stringify(maSettings));
+            } catch(e) {}
+        }
+        function loadAll() {
+            try {
+                const stored = localStorage.getItem('kline_offline_tooltip');
+                if (stored) {
+                    const obj = JSON.parse(stored);
+                    for (let name in obj) strategies[name] = obj[name];
+                }
+                const last = localStorage.getItem('current_strategy_tooltip');
+                if (last && strategies[last]) currentStrategy = last;
+                if (!strategies[currentStrategy]) strategies[currentStrategy] = { dailyData: JSON.parse(JSON.stringify(DEFAULT_DAILY)), stepLogs: [] };
+                const ma = localStorage.getItem('ma_settings_tooltip');
+                if (ma) { const loaded = JSON.parse(ma); for (let p in loaded) maSettings[p] = loaded[p]; }
+            } catch(e) {}
+            loadStrategy(currentStrategy);
+        }
+        function loadStrategy(name) {
+            currentStrategy = name;
+            dailyData = strategies[name].dailyData;
+            stepLogs = strategies[name].stepLogs || [];
+            if (!dailyData.length) dailyData = JSON.parse(JSON.stringify(DEFAULT_DAILY));
+            dailyData.sort((a,b)=>new Date(a.date)-new Date(b.date));
+            generateMonthly();
+            drawDailyChart();
+            updateStatsPanel();
+            updateLogDisplay();
+            updateStrategySelect();
+            persistAll();
+        }
+        function saveCurrent() {
+            strategies[currentStrategy] = { dailyData: dailyData, stepLogs: stepLogs };
+            persistAll();
+        }
+        
+        // 统计面板
+        function updateStatsPanel() {
+            const container = document.getElementById('statsPanel');
+            if (!container || !dailyData.length) return;
+            const first = dailyData[0], last = dailyData[dailyData.length-1];
+            const totalChange = ((last.close - first.open)/first.open*100).toFixed(2);
+            const maxHigh = Math.max(...dailyData.map(d=>d.high));
+            const minLow = Math.min(...dailyData.map(d=>d.low));
+            const amplitude = ((maxHigh-minLow)/minLow*100).toFixed(2);
+            const upDays = dailyData.filter(d=>d.close>=d.open).length;
+            const downDays = dailyData.length - upDays;
+            container.innerHTML = `
+                <div class="stat-card"><div class="stat-label">K线总数</div><div class="stat-value">${dailyData.length}</div></div>
+                <div class="stat-card"><div class="stat-label">区间涨跌</div><div class="stat-value">${totalChange}%</div></div>
+                <div class="stat-card"><div class="stat-label">最高/最低</div><div class="stat-value">${maxHigh.toFixed(2)} / ${minLow.toFixed(2)}</div></div>
+                <div class="stat-card"><div class="stat-label">振幅</div><div class="stat-value">${amplitude}%</div></div>
+                <div class="stat-card"><div class="stat-label">涨/跌天数</div><div class="stat-value">${upDays}/${downDays}</div></div>
+            `;
+        }
+        function updateLogDisplay() {
+            const container = document.getElementById('logList');
+            if (!container) return;
+            if (!stepLogs.length) { container.innerHTML = '<div class="log-item">暂无记录</div>'; return; }
+            let html = '';
+            for (let i=stepLogs.length-1; i>=0; i--) {
+                const log = stepLogs[i];
+                html += `<div class="log-item"><span>${log.date}</span><span>${log.mode==='amount'?'金额':'百分比'} ${log.value>0?'+':''}${log.value}</span><span>新收盘: ${log.newClose.toFixed(2)}</span></div>`;
+            }
+            container.innerHTML = html;
+        }
+        function addStepLog(date, mode, value, newClose) {
+            stepLogs.push({ date, mode, value, newClose });
+            if (stepLogs.length > 30) stepLogs.shift();
+            updateLogDisplay();
+            saveCurrent();
+        }
+        function clearLogs() { stepLogs = []; updateLogDisplay(); saveCurrent(); showMsg("涨跌记录已清空"); }
+        function clearAllData() {
+            if (confirm("⚠️ 确认清空所有数据吗？将恢复为初始3根K线。不可撤销！")) {
+                dailyData = JSON.parse(JSON.stringify(DEFAULT_DAILY));
+                stepLogs = [];
+                generateMonthly();
+                drawDailyChart();
+                updateStatsPanel();
+                updateLogDisplay();
+                saveCurrent();
+                showMsg("已清空所有数据");
+            }
+        }
+        function updateStrategySelect() {
+            const sel = document.getElementById('strategySelect');
+            if (!sel) return;
+            sel.innerHTML = '';
+            for (let name in strategies) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.text = name;
+                if (name === currentStrategy) opt.selected = true;
+                sel.appendChild(opt);
+            }
+        }
+        function showMsg(msg, isOk=true) {
+            const el = document.getElementById('statusMsg');
+            if (!el) return;
+            el.innerHTML = isOk ? `✅ ${msg}` : `⚠️ ${msg}`;
+            setTimeout(() => { if (el.innerHTML.includes(msg)) el.innerHTML = '✅ 就绪'; }, 2500);
+        }
+        
+        // ---------- 鼠标悬停显示涨跌幅（核心新增）----------
+        function handleCanvasMouseMove(e, canvas, data) {
+            if (!data.length) {
+                tooltipDiv.style.display = 'none';
+                return;
+            }
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const mouseX = (e.clientX - rect.left) * scaleX;
+            const mouseY = (e.clientY - rect.top) * scaleY;
+            
+            const w = canvas.width;
+            const count = data.length;
+            const candleWidth = Math.max(2, (w / count) * 0.7);
+            const spacing = (w / count) * 0.3;
+            const leftMargin = (w - (candleWidth+spacing)*count + spacing)/2;
+            
+            let hitIndex = -1;
+            for (let i=0; i<count; i++) {
+                const x = leftMargin + i*(candleWidth+spacing);
+                if (mouseX >= x && mouseX <= x+candleWidth) {
+                    hitIndex = i;
+                    break;
+                }
+            }
+            if (hitIndex === -1) {
+                tooltipDiv.style.display = 'none';
+                return;
+            }
+            const k = data[hitIndex];
+            // 计算涨跌幅（相对于前一根收盘价）
+            let changePercent = null;
+            let changeClass = '';
+            if (hitIndex > 0) {
+                const prevClose = data[hitIndex-1].close;
+                const change = (k.close - prevClose) / prevClose * 100;
+                changePercent = change.toFixed(2);
+                changeClass = change >= 0 ? 'change-red' : 'change-green';
+            } else {
+                changePercent = '--';
+                changeClass = '';
+            }
+            // 构建提示内容
+            let html = `<div>${k.date}</div>`;
+            html += `<div>开盘: ${k.open.toFixed(2)} &nbsp; 收盘: ${k.close.toFixed(2)}</div>`;
+            html += `<div>最高: ${k.high.toFixed(2)} &nbsp; 最低: ${k.low.toFixed(2)}</div>`;
+            html += `<div>涨跌幅: <span class="${changeClass}">${changePercent !== '--' ? (changePercent+'%') : '--'}</span></div>`;
+            tooltipDiv.innerHTML = html;
+            tooltipDiv.style.display = 'block';
+            // 定位：跟随鼠标，偏移15px防止遮挡
+            let left = e.clientX + 15;
+            let top = e.clientY + 15;
+            if (left + tooltipDiv.offsetWidth > window.innerWidth) left = e.clientX - tooltipDiv.offsetWidth - 10;
+            if (top + tooltipDiv.offsetHeight > window.innerHeight) top = e.clientY - tooltipDiv.offsetHeight - 10;
+            tooltipDiv.style.left = left + 'px';
+            tooltipDiv.style.top = top + 'px';
+        }
+        function handleCanvasMouseLeave() {
+            tooltipDiv.style.display = 'none';
+        }
+        
+        // 为canvas绑定事件
+        function attachTooltip(canvas, dataGetter) {
+            canvas.addEventListener('mousemove', (e) => {
+                const data = dataGetter();
+                handleCanvasMouseMove(e, canvas, data);
+            });
+            canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
+        }
+        
+        // ---------- 点击选中K线（原有功能）----------
+        function setupCanvasClick(canvas, isDaily) {
+            canvas.addEventListener('click', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const clickX = (e.clientX - rect.left) * scaleX;
+                const data = isDaily ? dailyData : monthlyData;
+                if (!data.length) return;
+                const w = canvas.width;
+                const count = data.length;
+                const candleWidth = Math.max(2, (w / count) * 0.7);
+                const spacing = (w / count) * 0.3;
+                const leftMargin = (w - (candleWidth+spacing)*count + spacing)/2;
+                for (let i=0; i<count; i++) {
+                    const x = leftMargin + i*(candleWidth+spacing);
+                    if (clickX >= x && clickX <= x+candleWidth) {
+                        const k = data[i];
+                        document.getElementById('editDate').value = k.date;
+                        document.getElementById('editOpen').value = k.open;
+                        document.getElementById('editClose').value = k.close;
+                        document.getElementById('editHigh').value = k.high;
+                        document.getElementById('editLow').value = k.low;
+                        showMsg(`已载入${isDaily?'日线':'月线'} ${k.date}`);
+                        break;
+                    }
+                }
+            });
+        }
+        
+        // ---------- 界面按钮绑定（与原代码一致）----------
+        function bindEvents() {
+            document.querySelector('.collapse-header')?.addEventListener('click', () => {
+                document.getElementById('addEditPanel').classList.toggle('open');
+            });
+            document.getElementById('saveEditBtn')?.addEventListener('click', () => {
+                let date = document.getElementById('editDate').value;
+                let open = parseFloat(document.getElementById('editOpen').value);
+                let close = parseFloat(document.getElementById('editClose').value);
+                let high = parseFloat(document.getElementById('editHigh').value);
+                let low = parseFloat(document.getElementById('editLow').value);
+                if (!date) { showMsg("请填写日期", false); return; }
+                if (isNaN(open) || isNaN(close)) { showMsg("开盘/收盘不能为空", false); return; }
+                if (document.getElementById('autoFillHL').checked) {
+                    const range = Math.abs(open-close)*0.2;
+                    if (isNaN(high)) high = Math.max(open,close)+range;
+                    if (isNaN(low)) low = Math.min(open,close)-range;
+                }
+                if (isNaN(high)) high = Math.max(open,close);
+                if (isNaN(low)) low = Math.min(open,close);
+                const existing = dailyData.findIndex(d => d.date === date);
+                if (existing !== -1) dailyData[existing] = { date, open, close, high, low };
+                else dailyData.push({ date, open, close, high, low });
+                dailyData.sort((a,b)=>new Date(a.date)-new Date(b.date));
+                generateMonthly();
+                drawDailyChart();
+                updateStatsPanel();
+                showMsg(`已保存 ${date}`);
+                saveCurrent();
+            });
+            document.getElementById('deleteKlineBtn')?.addEventListener('click', () => {
+                const date = document.getElementById('editDate').value;
+                if (!date) return;
+                const idx = dailyData.findIndex(d => d.date === date);
+                if (idx !== -1) {
+                    dailyData.splice(idx,1);
+                    generateMonthly();
+                    drawDailyChart();
+                    updateStatsPanel();
+                    showMsg(`已删除 ${date}`);
+                    saveCurrent();
+                } else showMsg("未找到该日期", false);
+            });
+            document.getElementById('applyStepBtn')?.addEventListener('click', () => {
+                if (!dailyData.length) { showMsg("没有K线数据", false); return; }
+                const last = dailyData[dailyData.length-1];
+                const step = parseFloat(document.getElementById('stepValue').value);
+                const mode = document.getElementById('stepMode').value;
+                if (isNaN(step)) { showMsg("请输入有效数值", false); return; }
+                let newClose = (mode === 'amount') ? last.close + step : last.close * (1 + step/100);
+                const open = last.close;
+                const close = parseFloat(newClose.toFixed(2));
+                let low = Math.min(open,close) - Math.random()*0.5;
+                let high = Math.max(open,close) + Math.random()*0.5;
+                low = parseFloat(low.toFixed(2));
+                high = parseFloat(high.toFixed(2));
+                const newDate = new Date(last.date);
+                newDate.setDate(newDate.getDate()+1);
+                const dateStr = newDate.toISOString().slice(0,10);
+                dailyData.push({ date: dateStr, open, close, high, low });
+                dailyData.sort((a,b)=>new Date(a.date)-new Date(b.date));
+                generateMonthly();
+                drawDailyChart();
+                updateStatsPanel();
+                addStepLog(dateStr, mode, step, close);
+                showMsg(`涨跌指令添加 ${dateStr}，收盘 ${close}`);
+                saveCurrent();
+            });
+            document.getElementById('addByDateBtn')?.addEventListener('click', () => {
+                let startDate = document.getElementById('startDatePicker').value;
+                let open = parseFloat(document.getElementById('editOpen').value);
+                let close = parseFloat(document.getElementById('editClose').value);
+                let high = parseFloat(document.getElementById('editHigh').value);
+                let low = parseFloat(document.getElementById('editLow').value);
+                if (!startDate || isNaN(open)) { showMsg("请填写完整", false); return; }
+                if (document.getElementById('autoFillHL').checked) {
+                    const range = Math.abs(open-close)*0.2;
+                    if (isNaN(high)) high = Math.max(open,close)+range;
+                    if (isNaN(low)) low = Math.min(open,close)-range;
+                }
+                if (isNaN(high)) high = Math.max(open,close);
+                if (isNaN(low)) low = Math.min(open,close);
+                dailyData.push({ date: startDate, open, close, high, low });
+                dailyData.sort((a,b)=>new Date(a.date)-new Date(b.date));
+                generateMonthly();
+                drawDailyChart();
+                updateStatsPanel();
+                showMsg(`已添加 ${startDate}`);
+                saveCurrent();
+            });
+            document.getElementById('maBtn')?.addEventListener('click', () => {
+                const modal = document.createElement('div');
+                modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:10000;';
+                const panel = document.createElement('div');
+                panel.style.cssText = 'background:#1e293b; border-radius:24px; padding:20px; width:260px;';
+                panel.innerHTML = `
+                    <h3 style="margin:0 0 16px 0;">均线设置</h3>
+                    <label><input type="checkbox" id="ma5" ${maSettings[5]?'checked':''}> 5日均线</label><br>
+                    <label><input type="checkbox" id="ma30" ${maSettings[30]?'checked':''}> 30日均线</label><br>
+                    <label><input type="checkbox" id="ma60" ${maSettings[60]?'checked':''}> 60日均线</label><br>
+                    <label><input type="checkbox" id="ma90" ${maSettings[90]?'checked':''}> 90日均线</label><br>
+                    <label><input type="checkbox" id="ma180" ${maSettings[180]?'checked':''}> 180日均线</label><br>
+                    <div style="margin-top:20px; display:flex; gap:12px; justify-content:flex-end;">
+                        <button id="maOk" style="background:#8b5cf6;">确认</button>
+                        <button id="maCancel">取消</button>
+                    </div>
+                `;
+                modal.appendChild(panel);
+                document.body.appendChild(modal);
+                document.getElementById('maOk').onclick = () => {
+                    maSettings[5]=document.getElementById('ma5').checked;
+                    maSettings[30]=document.getElementById('ma30').checked;
+                    maSettings[60]=document.getElementById('ma60').checked;
+                    maSettings[90]=document.getElementById('ma90').checked;
+                    maSettings[180]=document.getElementById('ma180').checked;
+                    drawDailyChart();
+                    persistAll();
+                    document.body.removeChild(modal);
+                    showMsg("均线已更新");
+                };
+                document.getElementById('maCancel').onclick = () => document.body.removeChild(modal);
+            });
+            document.getElementById('strategySelect')?.addEventListener('change', (e) => loadStrategy(e.target.value));
+            document.getElementById('newStrategyBtn')?.addEventListener('click', () => {
+                const name = prompt("新策略名称");
+                if (name && !strategies[name]) {
+                    strategies[name] = { dailyData: JSON.parse(JSON.stringify(DEFAULT_DAILY)), stepLogs: [] };
+                    loadStrategy(name);
+                }
+            });
+            document.getElementById('exportDataBtn')?.addEventListener('click', () => {
+                const dataStr = JSON.stringify({ dailyData, stepLogs, maSettings });
+                const blob = new Blob([dataStr], {type:"application/json"});
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `kline_${currentStrategy}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+            document.getElementById('importDataBtn')?.addEventListener('click', () => {
+                const input = document.createElement('input');
+                input.type = 'file';
+                input.accept = 'application/json';
+                input.onchange = (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                        try {
+                            const obj = JSON.parse(ev.target.result);
+                            if (obj.dailyData) dailyData = obj.dailyData;
+                            if (obj.stepLogs) stepLogs = obj.stepLogs;
+                            if (obj.maSettings) maSettings = obj.maSettings;
+                            generateMonthly();
+                            drawDailyChart();
+                            updateStatsPanel();
+                            updateLogDisplay();
+                            saveCurrent();
+                            showMsg("导入成功");
+                        } catch(ex) { showMsg("导入失败", false); }
+                    };
+                    reader.readAsText(file);
+                };
+                input.click();
+            });
+            document.getElementById('clearLogBtn')?.addEventListener('click', clearLogs);
+            document.getElementById('clearAllBtn')?.addEventListener('click', clearAllData);
+        }
+        
+        // 初始化
+        function init() {
+            resizeCanvases();
+            setupCanvasClick(dailyCanvas, true);
+            setupCanvasClick(monthlyCanvas, false);
+            attachTooltip(dailyCanvas, () => dailyData);
+            loadAll();
+            bindEvents();
+            drawDailyChart();
+            drawMonthlyChart();
+            showMsg("离线版已启动，鼠标悬停日K线查看涨跌幅");
+        }
+        init();
+    })();
+</script>
+</body>
+</html>
